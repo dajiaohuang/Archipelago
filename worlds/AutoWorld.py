@@ -363,6 +363,8 @@ class World(metaclass=AutoWorldRegister):
         self.multiworld = multiworld
         self.player = player
         self.random = Random(multiworld.random.getrandbits(64))
+        self._rule_indirect_dependents: dict[str, set[Entrance]] = {}
+        self._refreshing_rule_indirects: set[str] = set()
 
     def __getattr__(self, item: str) -> Any:
         if item == "settings":
@@ -649,6 +651,8 @@ class World(metaclass=AutoWorldRegister):
             if isinstance(spot, Entrance):
                 self._register_rule_indirects(rule, spot)
         spot.access_rule = rule
+        if isinstance(spot, Entrance):
+            self._refresh_rule_indirect_dependents(spot.name)
 
     def set_completion_rule(self, rule: CollectionRule | Rule[Any]) -> None:
         """Set the completion rule for this world"""
@@ -676,6 +680,7 @@ class World(metaclass=AutoWorldRegister):
         entrance = from_region.connect(to_region, name, rule=rule)
         if rule and isinstance(rule, Rule.Resolved):
             self._register_rule_indirects(rule, entrance)
+        self._refresh_rule_indirect_dependents(entrance.name)
         return entrance
 
     def register_rule_dependencies(self, resolved_rule: Rule.Resolved) -> None:
@@ -703,6 +708,7 @@ class World(metaclass=AutoWorldRegister):
             visited_rules.add(rule_id)
             indirect_regions.update(current_rule.region_dependencies())
             for entrance_name in current_rule.entrance_dependencies():
+                self._rule_indirect_dependents.setdefault(entrance_name, set()).add(entrance)
                 if entrance_name in visited_entrances:
                     continue
                 visited_entrances.add(entrance_name)
@@ -715,6 +721,17 @@ class World(metaclass=AutoWorldRegister):
 
         for indirect_region in indirect_regions:
             self.multiworld.register_indirect_condition(self.get_region(indirect_region), entrance)
+
+    def _refresh_rule_indirect_dependents(self, entrance_name: str) -> None:
+        if entrance_name in self._refreshing_rule_indirects:
+            return
+        self._refreshing_rule_indirects.add(entrance_name)
+        try:
+            for dependent in self._rule_indirect_dependents.get(entrance_name, ()):
+                if isinstance(dependent.access_rule, Rule.Resolved):
+                    self._register_rule_indirects(dependent.access_rule, dependent)
+        finally:
+            self._refreshing_rule_indirects.remove(entrance_name)
 
 
 # any methods attached to this can be used as part of CollectionState,

@@ -675,11 +675,18 @@ class TestRules(RuleBuilderTestCase):
         region_d = Region("D", self.player, self.multiworld)
         self.multiworld.regions.extend([origin, region_a, region_b, region_c, region_d])
 
-        self.world.create_entrance(origin, region_b, Has("Item 1"), name="X")
-        self.world.create_entrance(origin, region_a, Has("Item 2"), name="Z")
+        self.world.create_entrance(origin, region_b, name="X")
+        self.world.create_entrance(origin, region_a, name="Z")
         self.world.create_entrance(origin, region_c, name="P")
-        self.world.create_entrance(region_b, region_c, CanReachRegion("A"), name="Y")
-        self.world.create_entrance(region_c, region_d, CanReachEntrance("Y"), name="W")
+        self.world.create_entrance(region_b, region_c, name="Y")
+        self.world.create_entrance(region_c, region_d, name="W")
+
+        # Set W before Y's rule, as in the reported order. W must be refreshed
+        # when Y's rule later introduces its indirect dependency on A.
+        self.world.set_rule(self.world.get_entrance("W"), CanReachEntrance("Y"))
+        self.world.set_rule(self.world.get_entrance("X"), Has("Item 1"))
+        self.world.set_rule(self.world.get_entrance("Y"), CanReachRegion("A"))
+        self.world.set_rule(self.world.get_entrance("Z"), Has("Item 2"))
 
         self.state.collect(self.world.create_item("Item 1"))  # B and C are reachable; Y and W remain blocked.
         self.assertFalse(self.state.can_reach(region_d, "Region", self.player))
