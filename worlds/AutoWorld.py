@@ -683,9 +683,38 @@ class World(metaclass=AutoWorldRegister):
         pass
 
     def _register_rule_indirects(self, resolved_rule: Rule.Resolved, entrance: Entrance) -> None:
-        if self.explicit_indirect_conditions:
-            for indirect_region in resolved_rule.region_dependencies().keys():
-                self.multiworld.register_indirect_condition(self.get_region(indirect_region), entrance)
+        if not self.explicit_indirect_conditions:
+            return
+
+        # A rule that checks another entrance can depend on regions used by that
+        # entrance's access rule. Register those transitively as well: the
+        # referenced entrance may already have a reachable parent region, so
+        # reaching one of its indirect regions will not otherwise retry this
+        # entrance.
+        pending_rules = [resolved_rule]
+        visited_rules: set[int] = set()
+        visited_entrances: set[str] = set()
+        indirect_regions: set[str] = set()
+        while pending_rules:
+            current_rule = pending_rules.pop()
+            rule_id = id(current_rule)
+            if rule_id in visited_rules:
+                continue
+            visited_rules.add(rule_id)
+            indirect_regions.update(current_rule.region_dependencies())
+            for entrance_name in current_rule.entrance_dependencies():
+                if entrance_name in visited_entrances:
+                    continue
+                visited_entrances.add(entrance_name)
+                try:
+                    referenced_entrance = self.get_entrance(entrance_name)
+                except KeyError:
+                    continue
+                if isinstance(referenced_entrance.access_rule, Rule.Resolved):
+                    pending_rules.append(referenced_entrance.access_rule)
+
+        for indirect_region in indirect_regions:
+            self.multiworld.register_indirect_condition(self.get_region(indirect_region), entrance)
 
 
 # any methods attached to this can be used as part of CollectionState,

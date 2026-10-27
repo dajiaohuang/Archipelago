@@ -667,6 +667,25 @@ class TestRules(RuleBuilderTestCase):
         self.world.register_rule_dependencies(resolved_rule)
         self.assertFalse(resolved_rule(self.state))
 
+    def test_indirect_entrance_dependency_chain(self) -> None:
+        origin = Region("Region 1", self.player, self.multiworld)
+        region_a = Region("A", self.player, self.multiworld)
+        region_b = Region("B", self.player, self.multiworld)
+        region_c = Region("C", self.player, self.multiworld)
+        region_d = Region("D", self.player, self.multiworld)
+        self.multiworld.regions.extend([origin, region_a, region_b, region_c, region_d])
+
+        self.world.create_entrance(origin, region_b, Has("Item 1"), name="X")
+        self.world.create_entrance(origin, region_a, Has("Item 2"), name="Z")
+        self.world.create_entrance(origin, region_c, name="P")
+        self.world.create_entrance(region_b, region_c, CanReachRegion("A"), name="Y")
+        self.world.create_entrance(region_c, region_d, CanReachEntrance("Y"), name="W")
+
+        self.state.collect(self.world.create_item("Item 1"))  # B and C are reachable; Y and W remain blocked.
+        self.assertFalse(self.state.can_reach(region_d, "Region", self.player))
+        self.state.collect(self.world.create_item("Item 2"))  # A unblocks Y, whose target C is already reachable.
+        self.assertTrue(self.state.can_reach(region_d, "Region", self.player))
+
     def test_has(self) -> None:
         rule = Has("Item 1")
         resolved_rule = rule.resolve(self.world)
